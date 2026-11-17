@@ -6,33 +6,46 @@
 <title>日切放行</title>
 <script src="/static/vue.global.prod.js"></script>
 <style>
-  :root{--bg:#0b1220;--panel:#121a2b;--line:#243049;--text:#e8eefc;--muted:#93a0b8;--ok:#3ddc97;--bad:#ff6b6b;--accent:#4cc9f0}
+  :root{--bg:#0b1220;--panel:#121a2b;--line:#243049;--text:#e8eefc;--muted:#93a0b8;--ok:#3ddc97;--bad:#ff6b6b;--accent:#4cc9f0;--warn:#ffb454}
   *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
   .top{display:flex;align-items:center;gap:18px;padding:14px 20px;border-bottom:1px solid var(--line);background:#0e1626}
   .brand{font-weight:700;letter-spacing:.08em;font-size:18px}
   .brand small{display:block;color:var(--muted);font-weight:400;font-size:11px;letter-spacing:.02em;margin-top:2px}
-  .tabs{display:flex;gap:6px;flex:1}
+  .tabs{display:flex;gap:6px;flex:1;flex-wrap:wrap}
   .tabs button{background:transparent;border:1px solid transparent;color:var(--muted);padding:8px 12px;border-radius:999px;cursor:pointer}
   .tabs button.on{color:var(--text);border-color:var(--line);background:#18233a}
   .user{color:var(--muted);font-size:13px}
   .ghost{background:#18233a;border:1px solid var(--line);color:var(--text);padding:7px 10px;border-radius:8px;cursor:pointer}
+  .ghost:disabled{opacity:.45;cursor:not-allowed}
   main{padding:18px 20px 28px}
   .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
   h2{margin:0 0 10px;font-size:15px;color:#c9d4ea}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left}
+  th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
   th{color:var(--muted);font-weight:600}
-  input,select{width:100%;background:#0b1220;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;margin:4px 0 10px}
+  input,select,textarea{width:100%;background:#0b1220;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;margin:4px 0 10px}
+  textarea{min-height:64px;resize:vertical;font-family:inherit}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .primary{background:var(--accent);color:#041018;border:0;padding:9px 12px;border-radius:8px;font-weight:700;cursor:pointer}
+  .danger{background:var(--bad);color:#1a0606;border:0;padding:9px 12px;border-radius:8px;font-weight:700;cursor:pointer}
+  .warnbtn{background:var(--warn);color:#1a1206;border:0;padding:9px 12px;border-radius:8px;font-weight:700;cursor:pointer}
   .mono{font-family:Consolas,"Courier New",monospace}
-  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#1b2a22;color:var(--ok)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#1b2a22;color:var(--ok);white-space:nowrap}
   .tag.bad{background:#2a1518;color:var(--bad)}
+  .tag.warn{background:#2e2410;color:var(--warn)}
+  .tag.idle{background:#18233a;color:var(--muted)}
   .login{max-width:400px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
   .err{color:var(--bad);min-height:18px;font-size:13px}
-  .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+  .okline{color:var(--ok);font-size:13px;min-height:18px}
+  .kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
   .kpi .panel{padding:12px}.kpi b{display:block;font-size:22px;margin-top:4px}
+  .manual{white-space:pre-wrap;font-size:13px;line-height:1.75;color:#c9d4ea;background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:14px}
+  .pin{display:inline-block;background:#2e2410;color:var(--warn);border-radius:999px;padding:3px 10px;font-size:12px;margin-bottom:10px}
+  .evt{font-size:12.5px}
+  .sel{outline:2px solid var(--accent);outline-offset:-2px}
+  .mini{font-size:12px;color:var(--muted)}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -54,14 +67,24 @@ createApp({
   setup(){
     const token=ref(localStorage.getItem('slicegate_token')||'');
     const user=ref(localStorage.getItem('slicegate_user')||'');
-    const username=ref('admin'), password=ref('123456'), err=ref(''), tab=ref(0), actionErr=ref('');
+    const username=ref('admin'), password=ref('123456'), err=ref(''), tab=ref(0), actionErr=ref(''), okMsg=ref('');
     const slices=ref([]), releases=ref([]), watermarks=ref([]);
+    const queue=ref([]), events=ref([]), manual=ref(null), consistency=ref(null);
+    const selectedTaskId=ref(null), detail=ref(null), decisionNote=ref('');
     const form=ref({slice_no:'SL-2026-11-03-east',biz_date:'2026-11-03',partition_key:'east',row_count:1000,expected_count:1000});
     const releaseSliceId=ref(1), consumer=ref('ads_order');
-    const nav=['切片登记','完整度裁决','下游放行','消费水位'];
+    const nav=['切片登记','完整度裁决','下游放行','消费水位','抽检队列','抽检台账','抽检说明册'];
     const completeCnt=computed(()=>slices.value.filter(s=>s.completeness==='完整').length);
     const openCnt=computed(()=>slices.value.filter(s=>s.release_status!=='已放行').length);
+    const frozenCnt=computed(()=>queue.value.filter(t=>t.status==='复核冻结').length);
+    const pendingCnt=computed(()=>queue.value.filter(t=>t.status==='待抽检').length);
     function auth(){return {Authorization:'Bearer '+token.value,'Content-Type':'application/json'};}
+    function sTag(st){
+      if(st==='抽检通过') return '';
+      if(st==='复核冻结') return 'bad';
+      if(st==='待抽检') return 'warn';
+      return 'idle';
+    }
     async function login(){
       err.value='';
       const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
@@ -79,19 +102,67 @@ createApp({
     }
     async function refresh(){
       if(!token.value) return;
+      actionErr.value=''; okMsg.value='';
       const s=await loadJson('/api/slices'); if(s===null) return;
       slices.value=Array.isArray(s.items)?s.items:[];
       const rel=await loadJson('/api/releases'); if(rel===null) return;
       releases.value=Array.isArray(rel.items)?rel.items:[];
       const w=await loadJson('/api/watermarks'); if(w===null) return;
       watermarks.value=Array.isArray(w.items)?w.items:[];
-      if(slices.value.length) releaseSliceId.value=slices.value[0].id;
+      const q=await loadJson('/api/sampling/queue'); if(q===null) return;
+      queue.value=Array.isArray(q.items)?q.items:[];
+      const e=await loadJson('/api/sampling/events'); if(e===null) return;
+      events.value=Array.isArray(e.items)?e.items:[];
+      const m=await loadJson('/api/sampling/manual'); if(m===null) return;
+      manual.value=m;
+      if(slices.value.length && !slices.value.some(x=>x.id===releaseSliceId.value)) releaseSliceId.value=slices.value[0].id;
+      if(selectedTaskId.value) await loadDetail(selectedTaskId.value);
     }
-    async function createSlice(){actionErr.value='';const r=await fetch('/api/slices',{method:'POST',headers:auth(),body:JSON.stringify(form.value)});const j=await r.json();if(!r.ok)actionErr.value=j.detail||'失败';await refresh();}
-    async function evaluate(id){await fetch('/api/slices/'+id+'/evaluate',{method:'POST',headers:auth()});await refresh();}
-    async function doRelease(){actionErr.value='';const r=await fetch('/api/slices/'+releaseSliceId.value+'/release',{method:'POST',headers:auth(),body:JSON.stringify({consumer:consumer.value})});const j=await r.json();if(!r.ok)actionErr.value=j.detail||'放行失败';await refresh();}
+    async function createSlice(){actionErr.value='';okMsg.value='';const r=await fetch('/api/slices',{method:'POST',headers:auth(),body:JSON.stringify(form.value)});const j=await r.json();if(!r.ok){actionErr.value=j.detail||'失败';}else{okMsg.value='已登记并入抽检队列（任务#'+j.sampling_task_id+'）';}await refresh();}
+    async function evaluate(id){actionErr.value='';okMsg.value='';const r=await fetch('/api/slices/'+id+'/evaluate',{method:'POST',headers:auth()});const j=await r.json();if(!r.ok){actionErr.value=j.detail||'裁决被拦';}else{okMsg.value='重裁结论：'+j.completeness;}await refresh();}
+    async function doRelease(){
+      actionErr.value='';okMsg.value='';
+      const r=await fetch('/api/slices/'+releaseSliceId.value+'/release',{method:'POST',headers:auth(),body:JSON.stringify({consumer:consumer.value,policy_path:'乙'})});
+      const j=await r.json();
+      if(!r.ok){actionErr.value=j.detail||'放行被拦';}else{okMsg.value='放行成功，水位已推进';}
+      await refresh();
+    }
+    async function loadDetail(tid){
+      selectedTaskId.value=tid;
+      const j=await loadJson('/api/sampling/tasks/'+tid);
+      if(j) detail.value=j;
+    }
+    async function decide(passed){
+      actionErr.value='';okMsg.value='';
+      if(!selectedTaskId.value){actionErr.value='请先在左侧选择抽检任务';return;}
+      const r=await fetch('/api/sampling/tasks/'+selectedTaskId.value+'/decision',
+        {method:'POST',headers:auth(),body:JSON.stringify({passed:passed,note:decisionNote.value,policy_path:'乙'})});
+      const j=await r.json();
+      if(!r.ok){actionErr.value=j.detail||'抽检裁决失败';}
+      else{okMsg.value=passed?'抽检已通过，闸口放行':'抽检不通过，已进入复核冻结：解冻重裁前成功放行硬拒绝';decisionNote.value='';}
+      await refresh();
+    }
+    async function unfreeze(){
+      actionErr.value='';okMsg.value='';
+      if(!selectedTaskId.value){actionErr.value='请先选择冻结任务';return;}
+      const r=await fetch('/api/sampling/tasks/'+selectedTaskId.value+'/unfreeze',
+        {method:'POST',headers:auth(),body:JSON.stringify({note:decisionNote.value,policy_path:'乙'})});
+      const j=await r.json();
+      if(!r.ok){actionErr.value=j.detail||'解冻失败';}
+      else{okMsg.value='已解冻重裁，回到抽检队列（第'+j.round_no+'轮）';decisionNote.value='';}
+      await refresh();
+    }
+    async function runConsistency(){
+      actionErr.value='';okMsg.value='';
+      const j=await loadJson('/api/sampling/consistency');
+      consistency.value=j;
+      await refresh();
+    }
     onMounted(()=>{if(token.value)refresh();});
-    return {token,user,username,password,err,tab,nav,slices,releases,watermarks,form,releaseSliceId,consumer,actionErr,completeCnt,openCnt,login,logout,createSlice,evaluate,doRelease};
+    return {token,user,username,password,err,tab,nav,slices,releases,watermarks,queue,events,manual,consistency,
+      form,releaseSliceId,consumer,actionErr,okMsg,completeCnt,openCnt,frozenCnt,pendingCnt,
+      selectedTaskId,detail,decisionNote,sTag,
+      login,logout,createSlice,evaluate,doRelease,loadDetail,decide,unfreeze,runConsistency,refresh};
   },
   template:`
   <div v-if="!token" class="login">
@@ -101,7 +172,7 @@ createApp({
   </div>
   <div v-if="token">
     <div class="top">
-      <div class="brand">日切放行<small>切片 → 完整度 → 放行 → 水位</small></div>
+      <div class="brand">日切放行<small>切片 → 抽检复核闸 → 完整度 → 放行 → 水位</small></div>
       <div class="tabs"><button v-for="(n,i) in nav" :key="n" :class="{on:tab===i}" @click="tab=i">{{n}}</button></div>
       <div class="user">{{user}}</div><button class="ghost" @click="logout">退出</button>
     </div>
@@ -109,54 +180,123 @@ createApp({
       <div class="kpi">
         <div class="panel">切片总数<b class="mono">{{slices.length}}</b></div>
         <div class="panel">已完整<b class="mono">{{completeCnt}}</b></div>
-        <div class="panel">未放行<b class="mono">{{openCnt}}</b></div>
+        <div class="panel">待抽检<b class="mono">{{pendingCnt}}</b></div>
+        <div class="panel">复核冻结<b class="mono">{{frozenCnt}}</b></div>
       </div>
+      <div class="err">{{actionErr}}</div><div class="okline">{{okMsg}}</div>
+
       <div v-show="tab===0" class="grid">
         <div class="panel">
-          <h2>在途切片</h2>
-          <table><thead><tr><th>切片号</th><th>日/区</th><th>实收</th><th>完整度</th><th></th></tr></thead>
+          <h2>在途切片（旁注读同库抽检任务）</h2>
+          <table><thead><tr><th>切片号</th><th>日/区</th><th>实收</th><th>完整度</th><th>抽检旁注</th><th></th></tr></thead>
           <tbody><tr v-for="s in slices" :key="s.id">
             <td class="mono">{{s.slice_no}}</td><td>{{s.biz_date}} / {{s.partition_key}}</td>
             <td class="mono">{{s.row_count}}/{{s.expected_count}}</td>
             <td><span class="tag" :class="{bad:s.completeness!=='完整'}">{{s.completeness}}</span></td>
+            <td><span class="tag" :class="sTag(s.sampling_status)">{{s.sampling_status||'无抽检任务'}}</span></td>
             <td><button class="ghost" @click="evaluate(s.id)">重裁</button></td>
           </tr></tbody></table>
         </div>
         <div class="panel">
-          <h2>登记切片</h2>
+          <h2>登记切片（登记即入抽检队列）</h2>
           <div class="row"><div><label>切片号</label><input v-model="form.slice_no"/></div><div><label>业务日</label><input v-model="form.biz_date"/></div></div>
           <div class="row"><div><label>分区</label><input v-model="form.partition_key"/></div><div><label>实收</label><input type="number" v-model.number="form.row_count"/></div></div>
           <label>期望</label><input type="number" v-model.number="form.expected_count"/>
-          <button class="primary" @click="createSlice">写入登记</button>
-          <div class="err">{{actionErr}}</div>
+          <button class="primary" @click="createSlice">写入登记并入队</button>
         </div>
       </div>
+
       <div v-show="tab===1" class="panel">
-        <h2>完整度裁决</h2>
-        <table><thead><tr><th>切片</th><th>缺口</th><th>结论</th><th>放行态</th></tr></thead>
+        <h2>完整度裁决（未过抽检复核闸禁止标完整）</h2>
+        <table><thead><tr><th>切片</th><th>缺口</th><th>结论</th><th>抽检状态</th><th>放行态</th><th></th></tr></thead>
         <tbody><tr v-for="s in slices" :key="'c'+s.id">
           <td class="mono">{{s.slice_no}}</td><td class="mono">{{Math.max(s.expected_count-s.row_count,0)}}</td>
-          <td>{{s.completeness}}</td><td>{{s.release_status}}</td>
+          <td>{{s.completeness}}</td>
+          <td><span class="tag" :class="sTag(s.sampling_status)">{{s.sampling_status||'无抽检任务'}}</span></td>
+          <td>{{s.release_status}}</td>
+          <td><button class="ghost" @click="evaluate(s.id)">重裁</button></td>
         </tr></tbody></table>
       </div>
+
       <div v-show="tab===2" class="grid">
         <div class="panel">
-          <h2>申请放行</h2>
-          <label>切片</label><select v-model.number="releaseSliceId"><option v-for="s in slices" :value="s.id">{{s.slice_no}}（{{s.completeness}}）</option></select>
+          <h2>申请放行（放行闸同库硬校验抽检态）</h2>
+          <label>切片</label><select v-model.number="releaseSliceId"><option v-for="s in slices" :value="s.id">{{s.slice_no}}（{{s.completeness}} / {{s.sampling_status||'无抽检'}}）</option></select>
           <label>下游</label><input v-model="consumer"/>
-          <button class="primary" @click="doRelease">放行</button>
-          <div class="err">{{actionErr}}</div>
+          <button class="primary" @click="doRelease">放行（口径：乙）</button>
+          <p class="mini">复核冻结期间任何成功放行硬拒绝：不写成功流水、不推进水位，直至解冻重裁。</p>
         </div>
         <div class="panel">
           <h2>放行流水</h2>
-          <table><thead><tr><th>切片</th><th>下游</th><th>结果</th><th>时间</th></tr></thead>
-          <tbody><tr v-for="r in releases" :key="r.id"><td class="mono">{{r.slice_no}}</td><td>{{r.consumer}}</td><td>{{r.status}}</td><td class="mono">{{r.created_at}}</td></tr></tbody></table>
+          <table><thead><tr><th>切片</th><th>下游</th><th>结果</th><th>备注</th><th>时间</th></tr></thead>
+          <tbody><tr v-for="r in releases" :key="r.id"><td class="mono">{{r.slice_no}}</td><td>{{r.consumer}}</td><td>{{r.status}}</td><td>{{r.note}}</td><td class="mono">{{r.created_at}}</td></tr></tbody></table>
         </div>
       </div>
+
       <div v-show="tab===3" class="panel">
-        <h2>消费水位</h2>
+        <h2>消费水位（仅成功放行后推进）</h2>
         <table><thead><tr><th>消费方</th><th>业务日</th><th>水位</th><th>来源切片</th></tr></thead>
         <tbody><tr v-for="w in watermarks" :key="w.id"><td>{{w.consumer}}</td><td>{{w.biz_date}}</td><td class="mono">{{w.watermark}}</td><td class="mono">{{w.source_slice}}</td></tr></tbody></table>
+      </div>
+
+      <div v-show="tab===4" class="grid">
+        <div class="panel">
+          <h2>抽检队列（两名值班同时点下按串行锁裁决）</h2>
+          <table><thead><tr><th>任务</th><th>切片</th><th>轮次</th><th>状态</th><th>值班</th><th></th></tr></thead>
+          <tbody><tr v-for="t in queue" :key="t.task_id" :class="{sel:selectedTaskId===t.task_id}">
+            <td class="mono">#{{t.task_id}}</td><td class="mono">{{t.slice_no}}</td><td class="mono">{{t.round_no}}</td>
+            <td><span class="tag" :class="sTag(t.status)">{{t.status}}</span></td>
+            <td>{{t.inspector||'—'}}</td>
+            <td><button class="ghost" @click="loadDetail(t.task_id)">复核详情</button></td>
+          </tr></tbody></table>
+        </div>
+        <div class="panel">
+          <h2>复核详情</h2>
+          <div v-if="!detail" class="mini">请选择左侧任务查看详情与流水。</div>
+          <div v-else>
+            <p class="mono" style="margin:4px 0">#{{detail.task.id}} · {{detail.task.slice_no}} · 第{{detail.task.round_no}}轮
+              <span class="tag" :class="sTag(detail.task.status)" style="margin-left:6px">{{detail.task.status}}</span></p>
+            <p class="mini" style="margin:4px 0">业务日 {{detail.task.biz_date}} / 分区 {{detail.task.partition_key}}；实收 {{detail.task.row_count}}/{{detail.task.expected_count}}；完整度 {{detail.task.completeness}}；放行态 {{detail.task.release_status}}</p>
+            <p class="mini" style="margin:4px 0">值班：{{detail.task.inspector||'—'}} ｜ 裁决时间：{{detail.task.decided_at||'—'}}</p>
+            <p class="mini" style="margin:4px 0">说明：{{detail.task.detail||'—'}}</p>
+            <label>本次抽检/解冻备注</label><textarea v-model="decisionNote" placeholder="填写抽检依据或解冻原因（可选）"></textarea>
+            <div class="btns">
+              <button class="primary" :disabled="detail.task.status!=='待抽检'" @click="decide(true)">抽检通过</button>
+              <button class="danger" :disabled="detail.task.status!=='待抽检'" @click="decide(false)">抽检不通过（进复核冻结）</button>
+              <button class="warnbtn" :disabled="detail.task.status!=='复核冻结'" @click="unfreeze">解冻重裁</button>
+            </div>
+            <h2 style="margin-top:14px">同库流水</h2>
+            <table class="evt"><thead><tr><th>时间</th><th>事件</th><th>详情</th><th>操作人</th></tr></thead>
+              <tbody><tr v-for="e in detail.events" :key="e.id">
+                <td class="mono">{{e.created_at}}</td><td>{{e.event_type}}</td><td>{{e.detail}}</td><td>{{e.operator}}</td>
+              </tr></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="tab===5" class="panel">
+        <h2>抽检台账（入队/通过/失败/争用/解冻/口径偏离全量流水）</h2>
+        <table><thead><tr><th>时间</th><th>切片</th><th>事件</th><th>详情</th><th>操作人</th></tr></thead>
+        <tbody><tr v-for="e in events" :key="e.id">
+          <td class="mono">{{e.created_at}}</td><td class="mono">{{e.slice_no||'—'}}</td>
+          <td><span class="tag" :class="{bad:e.event_type==='抽检口径偏了'||e.event_type==='闸口拦截',warn:e.event_type==='抽检争用'||e.event_type==='抽检失败'}">{{e.event_type}}</span></td>
+          <td>{{e.detail}}</td><td>{{e.operator}}</td>
+        </tr></tbody></table>
+      </div>
+
+      <div v-show="tab===6" class="panel">
+        <h2>抽检说明册</h2>
+        <div v-if="manual">
+          <span class="pin">钉版 · 口径={{manual.policy_path}}路径 · {{manual.version}} · 锁定日={{manual.locked_for_date}} · 不可改口</span>
+          <div class="manual">{{manual.body}}</div>
+        </div>
+        <h2 style="margin-top:16px">同库核对（队列 / 列表旁注 / 复核详情 / 放行闸）</h2>
+        <div class="btns"><button class="primary" @click="runConsistency">巡检不变量</button><button class="ghost" @click="refresh">刷新</button></div>
+        <div v-if="consistency" style="margin-top:10px">
+          <p v-if="consistency.ok" class="okline">巡检通过：无跳过抽检、无失败与放行同时成立。</p>
+          <table v-else><thead><tr><th>切片</th><th>问题</th></tr></thead>
+            <tbody><tr v-for="(v,i) in consistency.violations" :key="i"><td class="mono">{{v.slice_no}}</td><td class="err" style="min-height:0">{{v.problem}}</td></tr></tbody></table>
+        </div>
       </div>
     </main>
   </div>`
